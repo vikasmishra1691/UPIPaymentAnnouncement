@@ -140,7 +140,9 @@ fun SettingsScreen(
                 ) {
                     val apps = listOf(
                         "PhonePe", "Google Pay", "Paytm", "BHIM",
-                        "Amazon Pay", "BharatPe", "Freecharge", "MobiKwik", "WhatsApp"
+                        "Amazon Pay", "BharatPe", "Freecharge", "MobiKwik",
+                        "WhatsApp", "CRED", "Airtel Payments", "iMobile Pay",
+                        "Axis Mobile", "YONO SBI", "HDFC Bank", "Federal Bank", "PNB One"
                     )
                     apps.forEach { app ->
                         Row(

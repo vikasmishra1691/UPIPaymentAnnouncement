@@ -14,6 +14,9 @@ class PreferenceManager(context: Context) {
         private const val KEY_VOLUME_BOOST = "volume_boost"
         private const val KEY_AUTO_START = "auto_start"
         private const val KEY_VOICE_GENDER = "voice_gender"
+        private const val KEY_BLUETOOTH_ENABLED = "bluetooth_enabled"
+        private const val KEY_BLUETOOTH_DEVICE_ADDRESS = "bluetooth_device_address"
+        private const val KEY_BLUETOOTH_DEVICE_NAME = "bluetooth_device_name"
     }
 
     fun isAnnouncementEnabled(): Boolean {
@@ -52,6 +55,31 @@ class PreferenceManager(context: Context) {
         return sharedPreferences.getString(KEY_VOICE_GENDER, "female") ?: "female"
     }
 
+
+    // Bluetooth preferences
+    fun isBluetoothEnabled(): Boolean {
+        return sharedPreferences.getBoolean(KEY_BLUETOOTH_ENABLED, false)
+    }
+
+    fun setBluetoothEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean(KEY_BLUETOOTH_ENABLED, enabled).apply()
+    }
+
+    fun getBluetoothDeviceAddress(): String? {
+        return sharedPreferences.getString(KEY_BLUETOOTH_DEVICE_ADDRESS, null)
+    }
+
+    fun setBluetoothDeviceAddress(address: String?) {
+        sharedPreferences.edit().putString(KEY_BLUETOOTH_DEVICE_ADDRESS, address).apply()
+    }
+
+    fun getBluetoothDeviceName(): String? {
+        return sharedPreferences.getString(KEY_BLUETOOTH_DEVICE_NAME, null)
+    }
+
+    fun setBluetoothDeviceName(name: String?) {
+        sharedPreferences.edit().putString(KEY_BLUETOOTH_DEVICE_NAME, name).apply()
+    }
     fun setVoiceGender(gender: String) {
         sharedPreferences.edit().putString(KEY_VOICE_GENDER, gender).apply()
     }

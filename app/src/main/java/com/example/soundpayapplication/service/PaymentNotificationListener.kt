@@ -21,16 +21,24 @@ class PaymentNotificationListener : NotificationListenerService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val upiApps = listOf(
-        "com.phonepe.app",
-        "com.google.android.apps.nbu.paisa.user",
-        "net.one97.paytm",
-        "in.org.npci.upiapp",
-        "in.amazon.mShop.android.shopping",
-        "com.bharatpe.merchant.flutter",
-        "com.freecharge.android",
-        "com.mobikwik_new",
-        "com.whatsapp",
-        "com.google.android.gm" // Gmail for payment emails
+        "com.phonepe.app",                              // PhonePe
+        "com.google.android.apps.nbu.paisa.user",      // Google Pay
+        "net.one97.paytm",                             // Paytm
+        "in.org.npci.upiapp",                          // BHIM UPI
+        "in.amazon.mShop.android.shopping",            // Amazon Pay
+        "com.bharatpe.merchant.flutter",               // BharatPe
+        "com.freecharge.android",                      // Freecharge
+        "com.mobikwik_new",                            // MobiKwik
+        "com.whatsapp",                                // WhatsApp Pay
+        "com.paypal.android.p2pmobile",                // PayPal
+        "com.dreamplug.androidapp",                    // CRED
+        "com.myairtelapp",                             // Airtel Payments Bank
+        "com.csam.icici.bank.imobile",                 // iMobile Pay
+        "com.axis.mobile",                             // Axis Mobile
+        "com.sbi.lotusintouch",                        // YONO SBI
+        "com.snapwork.hdfc",                           // HDFC Bank
+        "com.fb.app",                                  // Federal Bank
+        "com.pnb.onlite"                              // PNB One
     )
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -41,7 +49,10 @@ class PaymentNotificationListener : NotificationListenerService() {
 
             // Check if notification is from a UPI app
             if (packageName in upiApps) {
+                Log.d(TAG, "Notification from UPI app: $packageName")
                 processNotification(statusBarNotification)
+            } else {
+                Log.v(TAG, "Ignoring notification from non-UPI app: $packageName")
             }
         }
     }
@@ -61,9 +72,11 @@ class PaymentNotificationListener : NotificationListenerService() {
 
             // Check if this is a payment received notification
             if (isPaymentReceivedNotification(fullText)) {
+                Log.d(TAG, "✓ Detected as payment received notification")
                 val paymentInfo = PaymentParser.parsePaymentInfo(fullText, title, bigText)
 
                 if (paymentInfo != null) {
+                    Log.d(TAG, "✓ Parsed payment: ${paymentInfo.amount} from ${paymentInfo.senderName}")
                     val appName = getAppName(sbn.packageName)
 
                     // Save to database
@@ -82,7 +95,11 @@ class PaymentNotificationListener : NotificationListenerService() {
 
                     // Trigger voice announcement
                     announcePayment(paymentInfo.amount, paymentInfo.senderName)
+                } else {
+                    Log.w(TAG, "✗ Could not parse payment info from notification")
                 }
+            } else {
+                Log.d(TAG, "✗ Not a payment received notification (might be sent payment or other)")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing notification", e)
@@ -90,19 +107,47 @@ class PaymentNotificationListener : NotificationListenerService() {
     }
 
     private fun isPaymentReceivedNotification(text: String): Boolean {
-        val keywords = listOf(
+        // Keywords that indicate payment received (not sent)
+        val receivedKeywords = listOf(
             "received",
             "credited",
             "payment received",
             "you received",
             "got ₹",
             "money received",
-            "upi payment",
-            "paid you"
+            "upi payment received",
+            "paid you",
+            "credit",
+            "deposited"
         )
 
-        return keywords.any { text.contains(it, ignoreCase = true) } &&
-               (text.contains("₹") || text.contains("rs") || text.contains("inr"))
+        // Keywords that indicate payment sent (should be excluded)
+        val sentKeywords = listOf(
+            "sent",
+            "paid to",
+            "payment to",
+            "debited",
+            "debit",
+            "transferred to",
+            "paid ₹"
+        )
+
+        // Must contain currency symbol or keyword
+        val hasCurrency = text.contains("₹") ||
+                         text.contains("rs.", ignoreCase = true) ||
+                         text.contains("inr", ignoreCase = true) ||
+                         text.contains("rupees", ignoreCase = true)
+
+        // Must contain received keyword and NOT contain sent keyword
+        val hasReceivedKeyword = receivedKeywords.any { text.contains(it, ignoreCase = true) }
+        val hasSentKeyword = sentKeywords.any { text.contains(it, ignoreCase = true) }
+
+        // Must be from UPI context
+        val isUpiContext = text.contains("upi", ignoreCase = true) ||
+                          text.contains("payment", ignoreCase = true) ||
+                          text.contains("transaction", ignoreCase = true)
+
+        return hasCurrency && hasReceivedKeyword && !hasSentKeyword && isUpiContext
     }
 
     private fun announcePayment(amount: String, senderName: String?) {
@@ -129,6 +174,15 @@ class PaymentNotificationListener : NotificationListenerService() {
             "com.freecharge.android" -> "Freecharge"
             "com.mobikwik_new" -> "MobiKwik"
             "com.whatsapp" -> "WhatsApp"
+            "com.paypal.android.p2pmobile" -> "PayPal"
+            "com.dreamplug.androidapp" -> "CRED"
+            "com.myairtelapp" -> "Airtel Payments"
+            "com.csam.icici.bank.imobile" -> "iMobile Pay"
+            "com.axis.mobile" -> "Axis Mobile"
+            "com.sbi.lotusintouch" -> "YONO SBI"
+            "com.snapwork.hdfc" -> "HDFC Bank"
+            "com.fb.app" -> "Federal Bank"
+            "com.pnb.onlite" -> "PNB One"
             else -> "UPI App"
         }
     }
