@@ -24,37 +24,74 @@ object PaymentParser {
     }
 
     private fun extractAmount(text: String): String? {
-        // Pattern 1: ₹123 or ₹1,234.56
+        Log.d(TAG, "Extracting amount from: $text")
+
+        // Pattern 1: ₹123 or ₹1,234.56 or ₹1.00 or ₹1
         val rupeePattern = "₹\\s*([0-9,]+\\.?[0-9]*)"
         var regex = Regex(rupeePattern)
         var match = regex.find(text)
 
         if (match != null) {
-            val amount = match.groupValues[1].replace(",", "")
-            return "₹$amount"
+            val rawAmount = match.groupValues[1].replace(",", "")
+            val amount = formatAmount(rawAmount)
+            Log.d(TAG, "Found amount with ₹: $amount")
+            return amount
         }
 
-        // Pattern 2: Rs 123 or Rs. 123
+        // Pattern 2: Rs 123 or Rs. 123 or Rs.1
         val rsPattern = "(?:rs\\.?|inr)\\s*([0-9,]+\\.?[0-9]*)"
         regex = Regex(rsPattern, RegexOption.IGNORE_CASE)
         match = regex.find(text)
 
         if (match != null) {
-            val amount = match.groupValues[1].replace(",", "")
-            return "₹$amount"
+            val rawAmount = match.groupValues[1].replace(",", "")
+            val amount = formatAmount(rawAmount)
+            Log.d(TAG, "Found amount with Rs: $amount")
+            return amount
         }
 
-        // Pattern 3: 123.45 (standalone number with decimal)
-        val numberPattern = "\\b([0-9,]+\\.[0-9]{2})\\b"
-        regex = Regex(numberPattern)
+        // Pattern 3: Any number with decimal (e.g., 1.00, 123.45)
+        val decimalPattern = "\\b([0-9,]+\\.[0-9]+)\\b"
+        regex = Regex(decimalPattern)
         match = regex.find(text)
 
         if (match != null) {
-            val amount = match.groupValues[1].replace(",", "")
-            return "₹$amount"
+            val rawAmount = match.groupValues[1].replace(",", "")
+            val amount = formatAmount(rawAmount)
+            Log.d(TAG, "Found amount with decimal: $amount")
+            return amount
         }
 
+        // Pattern 4: Standalone whole number near payment keywords
+        val numberPattern = "\\b([1-9][0-9]{0,7})\\b"
+        regex = Regex(numberPattern)
+        val matches = regex.findAll(text).toList()
+
+        if (matches.isNotEmpty()) {
+            // Take the first number found (likely the amount)
+            val rawAmount = matches[0].groupValues[1]
+            val amount = formatAmount(rawAmount)
+            Log.d(TAG, "Found standalone number: $amount")
+            return amount
+        }
+
+        Log.w(TAG, "Could not extract amount from text")
         return null
+    }
+
+    /**
+     * Format amount to ensure consistent storage format: ₹123.45
+     * This ensures database queries work correctly
+     */
+    private fun formatAmount(rawAmount: String): String {
+        val amount = rawAmount.toDoubleOrNull() ?: return "₹0.00"
+
+        // If the amount has no decimal part or is a whole number, add .00
+        return if (rawAmount.contains(".")) {
+            "₹$rawAmount"
+        } else {
+            "₹$rawAmount.00"
+        }
     }
 
     private fun extractSenderName(text: String, title: String, bigText: String): String? {

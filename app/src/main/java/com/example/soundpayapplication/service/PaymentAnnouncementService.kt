@@ -26,8 +26,6 @@ class PaymentAnnouncementService : Service(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var isTtsReady = false
     private lateinit var audioManager: AudioManager
-    private var originalVolume = 0
-    private var audioFocusRequest: AudioFocusRequest? = null
 
     companion object {
         private const val CHANNEL_ID = "payment_announcement_channel"
@@ -36,19 +34,32 @@ class PaymentAnnouncementService : Service(), TextToSpeech.OnInitListener {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "Service created")
+        Log.d(TAG, "========================================")
+        Log.d(TAG, "★ PAYMENT ANNOUNCEMENT SERVICE CREATED ★")
+        Log.d(TAG, "========================================")
 
+        Log.d(TAG, "→ Initializing TextToSpeech...")
         tts = TextToSpeech(this, this)
+
+        Log.d(TAG, "→ Getting AudioManager...")
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
 
+        Log.d(TAG, "→ Creating notification channel...")
         createNotificationChannel()
+
+        Log.d(TAG, "✓ Service creation complete")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val amount = intent?.getStringExtra("amount") ?: ""
         val senderName = intent?.getStringExtra("senderName")
 
-        Log.d(TAG, "Announcement request: amount=$amount, sender=$senderName")
+        Log.d(TAG, "========================================")
+        Log.d(TAG, "★ ANNOUNCEMENT SERVICE STARTED ★")
+        Log.d(TAG, "Amount: $amount")
+        Log.d(TAG, "Sender: ${senderName ?: "Unknown"}")
+        Log.d(TAG, "TTS Ready: $isTtsReady")
+        Log.d(TAG, "========================================")
 
         // Start foreground service
         val notification = createNotification()
@@ -71,9 +82,15 @@ class PaymentAnnouncementService : Service(), TextToSpeech.OnInitListener {
     data class PendingAnnouncement(val amount: String, val senderName: String?)
 
     override fun onInit(status: Int) {
+        Log.d(TAG, "→ onInit() called with status: $status")
+
         if (status == TextToSpeech.SUCCESS) {
+            Log.d(TAG, "✓ TTS initialization SUCCESS")
+
             val preferenceManager = PreferenceManager(this)
             val language = preferenceManager.getLanguage()
+
+            Log.d(TAG, "→ Setting language: $language")
 
             val result = when (language) {
                 "hindi" -> tts?.setLanguage(Locale.forLanguageTag("hi-IN"))
@@ -81,95 +98,143 @@ class PaymentAnnouncementService : Service(), TextToSpeech.OnInitListener {
             }
 
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.e(TAG, "Language not supported, using default")
+                Log.e(TAG, "✗ Language not supported, using default")
                 tts?.setLanguage(Locale.US)
+            } else {
+                Log.d(TAG, "✓ Language set successfully")
             }
 
             // Set speech rate and pitch
             tts?.setSpeechRate(0.9f)
             tts?.setPitch(1.0f)
+            Log.d(TAG, "✓ Speech rate and pitch configured")
 
             // Set utterance listener
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
-                    Log.d(TAG, "TTS started")
+                    Log.d(TAG, "★ TTS STARTED speaking: $utteranceId")
                 }
 
                 override fun onDone(utteranceId: String?) {
-                    Log.d(TAG, "TTS completed")
+                    Log.d(TAG, "★ TTS COMPLETED speaking: $utteranceId")
                     stopSelf()
                 }
 
                 override fun onError(utteranceId: String?) {
-                    Log.e(TAG, "TTS error")
+                    Log.e(TAG, "✗ TTS ERROR for utterance: $utteranceId")
+                    stopSelf()
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    Log.e(TAG, "✗ TTS ERROR for utterance: $utteranceId, code: $errorCode")
                     stopSelf()
                 }
             })
 
             isTtsReady = true
-            Log.d(TAG, "TTS initialized successfully")
+            Log.d(TAG, "✓✓✓ TTS is now READY ✓✓✓")
 
             // Announce any pending payments
             if (pendingAnnouncements.isNotEmpty()) {
+                Log.d(TAG, "→ Processing ${pendingAnnouncements.size} pending announcements")
                 pendingAnnouncements.forEach { pending ->
                     announcePayment(pending.amount, pending.senderName)
                 }
                 pendingAnnouncements.clear()
+            } else {
+                Log.d(TAG, "→ No pending announcements")
             }
         } else {
-            Log.e(TAG, "TTS initialization failed")
+            Log.e(TAG, "✗✗✗ TTS initialization FAILED with status: $status")
             stopSelf()
         }
     }
 
     private fun announcePayment(amount: String, senderName: String?) {
         try {
+            Log.d(TAG, "→ announcePayment() called")
+            Log.d(TAG, "  Amount: $amount")
+            Log.d(TAG, "  Sender: ${senderName ?: "None"}")
+
             val preferenceManager = PreferenceManager(this)
 
             if (!preferenceManager.isAnnouncementEnabled()) {
-                Log.d(TAG, "Announcements disabled in settings")
+                Log.w(TAG, "✗ Announcements disabled in settings - stopping service")
                 stopSelf()
                 return
             }
 
-            // Request audio focus for announcement (routes to Bluetooth if connected)
-            requestAudioFocus()
+            Log.d(TAG, "✓ Announcements enabled in settings")
 
-            // Boost volume temporarily if enabled and not using Bluetooth
-            if (preferenceManager.isVolumeBoostEnabled() && !preferenceManager.isBluetoothEnabled()) {
-                boostVolume()
+            if (!isTtsReady || tts == null) {
+                Log.e(TAG, "✗ TTS not ready - stopping service")
+                stopSelf()
+                return
             }
+
+            Log.d(TAG, "✓ TTS is ready")
 
             val message = createAnnouncementMessage(amount, senderName, preferenceManager.getLanguage())
+            val utteranceId = "payment_${System.currentTimeMillis()}"
 
-            Log.d(TAG, "Announcing: $message (Bluetooth: ${preferenceManager.isBluetoothEnabled()})")
+            Log.d(TAG, "→ Message to announce: \"$message\"")
+            Log.d(TAG, "→ Utterance ID: $utteranceId")
 
+            // Configure audio for announcement
             val params = Bundle()
-            params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "payment_${System.currentTimeMillis()}")
-
-            // Use audio stream for announcements (routes to Bluetooth automatically)
             params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
 
-            tts?.speak(message, TextToSpeech.QUEUE_FLUSH, params, "payment_${System.currentTimeMillis()}")
+            // Request audio focus
+            Log.d(TAG, "→ Requesting audio focus...")
+            requestAudioFocus()
 
-            // Restore volume after 3 seconds
-            if (preferenceManager.isVolumeBoostEnabled() && !preferenceManager.isBluetoothEnabled()) {
-                android.os.Handler(mainLooper).postDelayed({
-                    restoreVolume()
-                    abandonAudioFocus()
-                }, 3000)
+            // Speak using phone audio
+            Log.d(TAG, "→ Calling TTS speak()...")
+            Log.d(TAG, "★★★ ANNOUNCING: $message ★★★")
+            val speakResult = tts?.speak(message, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+            Log.d(TAG, "→ TTS speak() returned: $speakResult")
+
+            if (speakResult == TextToSpeech.ERROR) {
+                Log.e(TAG, "✗ TTS speak() returned ERROR")
             } else {
-                // Release audio focus after 3 seconds for Bluetooth
-                android.os.Handler(mainLooper).postDelayed({
-                    abandonAudioFocus()
-                }, 3000)
+                Log.d(TAG, "✓ TTS speak() call successful")
             }
+
         } catch (e: Exception) {
-            Log.e(TAG, "Error announcing payment", e)
-            abandonAudioFocus()
+            Log.e(TAG, "✗ Exception in announcePayment", e)
             stopSelf()
         }
     }
+
+    private fun requestAudioFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val audioAttributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+
+                val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(audioAttributes)
+                    .setAcceptsDelayedFocusGain(true)
+                    .build()
+
+                audioManager.requestAudioFocus(focusRequest)
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.requestAudioFocus(
+                    null,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error requesting audio focus", e)
+        }
+    }
+
+
 
     private fun createAnnouncementMessage(amount: String, senderName: String?, language: String): String {
         return when (language) {
@@ -190,83 +255,7 @@ class PaymentAnnouncementService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun boostVolume() {
-        try {
-            originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            val targetVolume = (maxVolume * 0.8).toInt() // Set to 80% of max
 
-            if (originalVolume < targetVolume) {
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
-                Log.d(TAG, "Volume boosted from $originalVolume to $targetVolume")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error boosting volume", e)
-        }
-    }
-
-    private fun restoreVolume() {
-        try {
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, originalVolume, 0)
-            Log.d(TAG, "Volume restored to $originalVolume")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error restoring volume", e)
-        }
-    }
-
-    private fun requestAudioFocus() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val audioAttributes = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build()
-
-                audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-                    .setAudioAttributes(audioAttributes)
-                    .setWillPauseWhenDucked(false)
-                    .setOnAudioFocusChangeListener { focusChange ->
-                        Log.d(TAG, "Audio focus changed: $focusChange")
-                    }
-                    .build()
-
-                val result = audioManager.requestAudioFocus(audioFocusRequest!!)
-                if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                    Log.d(TAG, "Audio focus granted - audio will route to Bluetooth if connected")
-                } else {
-                    Log.w(TAG, "Audio focus request failed")
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                val result = audioManager.requestAudioFocus(
-                    null,
-                    AudioManager.STREAM_MUSIC,
-                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-                )
-                if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                    Log.d(TAG, "Audio focus granted")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error requesting audio focus", e)
-        }
-    }
-
-    private fun abandonAudioFocus() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                audioFocusRequest?.let {
-                    audioManager.abandonAudioFocusRequest(it)
-                    Log.d(TAG, "Audio focus abandoned")
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                audioManager.abandonAudioFocus(null)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error abandoning audio focus", e)
-        }
-    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
